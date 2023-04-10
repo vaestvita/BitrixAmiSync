@@ -7,6 +7,7 @@
 ip = localhost
 username = bitrixamisync
 secret = 
+number_count = 6
 
 [bitrix]
 url = 

@@ -17,6 +17,9 @@ ip = config.get('asterisk', 'ip')
 username =  config.get('asterisk', 'username')
 secret = config.get('asterisk', 'secret')
 
+# Количество символов в номере
+number_count = int(config.get('asterisk', 'number_count'))
+
 # Подключение к битрикс
 bitrix_url = config.get('bitrix', 'url')
 register = 'telephony.externalcall.register'
@@ -55,6 +58,7 @@ manager = Manager(loop=asyncio.get_event_loop(),
                   username=username,
                   secret=secret)
 
+
 # Подписка на события Новый вызов
 @manager.register_event('Newchannel')
 def NewchannelEvent(manager, message):
@@ -67,18 +71,21 @@ def NewchannelEvent(manager, message):
 
     # Обработка событий исходящего вызовах
     elif message.Context == 'from-internal' and message.Exten != 's':
-        call_id = message.Linkedid
-        phone_number = message.Exten
+        if len(message.Exten) >= number_count:
+            call_id = message.Linkedid
+            phone_number = message.Exten
 
-        if phone_number.startswith('9'):
-            phone_number = phone_number[1:]
+            if phone_number.startswith('9'):
+                phone_number = phone_number[1:]
 
-        # Поиск пользователя
-        bitrix_user_id = find_user_id(message.CallerIDNum)
-        # Регистрация звонка
-        bitrix_call_id = register_call(bitrix_user_id, phone_number, 1)
-        calls_data[call_id] =  {"phone_number": phone_number, "bitrix_call_id": bitrix_call_id, 'bitrix_user_id': bitrix_user_id}
-        print('Исходящий: ', call_id, calls_data[call_id])
+            # Поиск пользователя
+            bitrix_user_id = find_user_id(message.CallerIDNum)
+            # Регистрация звонка
+            bitrix_call_id = register_call(bitrix_user_id, phone_number, 1)
+            calls_data[call_id] =  {"phone_number": phone_number, "bitrix_call_id": bitrix_call_id, 'bitrix_user_id': bitrix_user_id}
+            print('Исходящий: ', call_id, calls_data[call_id])
+        else:
+            print(f'Длина номера {message.Exten} меньше минимального значения: {number_count}')
 
 # Подписка на событие вызов принят
 @manager.register_event('BridgeEnter')
@@ -107,67 +114,68 @@ def VarSetEvent(manager, message):
 @manager.register_event('CEL')
 def CelEvent(manager, message):
     call_id = message.Linkedid
-    if message.EventName == 'CHAN_START' and message.Context == 'from-trunk':
-        calls_data[call_id]["start_time"] = datetime.strptime(message.EventTime, '%Y-%m-%d %H:%M:%S')
+    if call_id in calls_data:
+        if message.EventName == 'CHAN_START' and message.Context == 'from-trunk':
+            calls_data[call_id]["start_time"] = datetime.strptime(message.EventTime, '%Y-%m-%d %H:%M:%S')
 
-    if message.EventName == 'HANGUP' and message.Exten == 'h':
-        extra = json.loads(message.Extra)
-        hangupcause = extra.get('hangupcause')
-        dialstatus = extra.get('dialstatus')
-        status_dict = {
-            'CANCEL': 304,
-            'ANSWER': 200,
-            'BUSY': 486,
-        }
-        if hangupcause in [16, 17]:
-            calls_data[call_id]["dial_status"] = status_dict.get(dialstatus)
-        elif not dialstatus or dialstatus not in status_dict:
-            calls_data[call_id]["dial_status"] = 603
+        if message.EventName == 'HANGUP' and message.Exten == 'h':
+            extra = json.loads(message.Extra)
+            hangupcause = extra.get('hangupcause')
+            dialstatus = extra.get('dialstatus')
+            status_dict = {
+                'CANCEL': 304,
+                'ANSWER': 200,
+                'BUSY': 486,
+            }
+            if hangupcause in [16, 17]:
+                calls_data[call_id]["dial_status"] = status_dict.get(dialstatus)
+            elif not dialstatus or dialstatus not in status_dict:
+                calls_data[call_id]["dial_status"] = 603
 
-    if message.EventName == 'LINKEDID_END':
-        call_id = message.Linkedid
+        if message.EventName == 'LINKEDID_END':
+            call_id = message.Linkedid
 
-        # Если входящий не отвечен        
-        if calls_data[call_id]["bitrix_user_id"] is None:
-            calls_data[call_id]["bitrix_user_id"] = find_user_id(None)
-            calls_data[call_id]["bitrix_call_id"] = register_call(calls_data[call_id]["bitrix_user_id"], calls_data[call_id]["phone_number"], 2)
-            calls_data[call_id]["dial_status"] = 304
+            # Если входящий не отвечен        
+            if calls_data[call_id]["bitrix_user_id"] is None:
+                calls_data[call_id]["bitrix_user_id"] = find_user_id(None)
+                calls_data[call_id]["bitrix_call_id"] = register_call(calls_data[call_id]["bitrix_user_id"], calls_data[call_id]["phone_number"], 2)
+                calls_data[call_id]["dial_status"] = 304
 
-        if "start_time" not in calls_data[call_id]:
-            calls_data[call_id]["duration"] = 10
-        else:
-            calls_data[call_id]["end_time"] = datetime.strptime(message.EventTime, '%Y-%m-%d %H:%M:%S')
-            calls_data[call_id]["duration"] = round((calls_data[call_id]["end_time"] - calls_data[call_id]["start_time"]).total_seconds())
+            if "start_time" not in calls_data[call_id]:
+                calls_data[call_id]["duration"] = 10
+            else:
+                calls_data[call_id]["end_time"] = datetime.strptime(message.EventTime, '%Y-%m-%d %H:%M:%S')
+                calls_data[call_id]["duration"] = round((calls_data[call_id]["end_time"] - calls_data[call_id]["start_time"]).total_seconds())
 
-        # Закрытие звонка в битрикс
-        finish_param = {
-        'CALL_ID': calls_data[call_id]["bitrix_call_id"],
-        'USER_ID': calls_data[call_id]["bitrix_user_id"],
-        'DURATION': calls_data[call_id]["duration"],
-        'STATUS_CODE':calls_data[call_id]["dial_status"]
-        }
-
-        response_finish = requests.post(bitrix_url + finish, finish_param)
-        print(f"Response from finish: {response_finish.json()}")
-
-        # Отправка файла записи
-        if calls_data[call_id]["dial_status"] == 200:
-            with open(calls_data[call_id]["file_patch"], "rb") as file:
-                encoded_file = base64.b64encode(file.read())
-
-            file_param = {
-                'CALL_ID': calls_data[call_id]["bitrix_call_id"],
-                'FILENAME': calls_data[call_id]["file_name"],
-                'FILE_CONTENT': encoded_file
+            # Закрытие звонка в битрикс
+            finish_param = {
+            'CALL_ID': calls_data[call_id]["bitrix_call_id"],
+            'USER_ID': calls_data[call_id]["bitrix_user_id"],
+            'DURATION': calls_data[call_id]["duration"],
+            'STATUS_CODE':calls_data[call_id]["dial_status"]
             }
 
-            response_attachRecord = requests.post(bitrix_url + attachRecord, file_param)
-            print(f"Response from attachRecord: {response_attachRecord.json()}")
-    
-            # Удаление записи из массива
-            del calls_data[call_id]
-        else:
-            del calls_data[call_id]
+            response_finish = requests.post(bitrix_url + finish, finish_param)
+            print(f"Response from finish: {response_finish.json()}")
+
+            # Отправка файла записи
+            if calls_data[call_id]["dial_status"] == 200:
+                with open(calls_data[call_id]["file_patch"], "rb") as file:
+                    encoded_file = base64.b64encode(file.read())
+
+                file_param = {
+                    'CALL_ID': calls_data[call_id]["bitrix_call_id"],
+                    'FILENAME': calls_data[call_id]["file_name"],
+                    'FILE_CONTENT': encoded_file
+                }
+
+                response_attachRecord = requests.post(bitrix_url + attachRecord, file_param)
+                print(f"Response from attachRecord: {response_attachRecord.json()}")
+        
+                # Удаление записи из массива
+                del calls_data[call_id]
+            else:
+                del calls_data[call_id]
 
 def main():
     try:
