@@ -2,6 +2,16 @@
 
 Заполнить данные в config.ini
 
+```
+[asterisk]
+ip = 192.168.1.247
+username = bitrixamisync
+secret = 
+
+[bitrix]
+url = 
+```
+
 Передача информации о звонках из Asterisk в Битрикс24 через AMI
 
 ### cel_general_custom.conf
