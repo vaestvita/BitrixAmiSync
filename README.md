@@ -4,7 +4,7 @@
 
 ```
 [asterisk]
-ip = 192.168.1.247
+ip = localhost
 username = bitrixamisync
 secret = 
 
