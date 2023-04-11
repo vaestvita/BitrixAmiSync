@@ -69,44 +69,53 @@ def NewchannelEvent(manager, message):
         calls_data[call_id] =  {"phone_number": message.CallerIDNum, 'bitrix_user_id': None}
         print('Входящий: ', call_id, calls_data[call_id])
 
-    # Обработка событий исходящего вызовах
-    elif message.Context == 'from-internal' and message.Exten != 's':
-        if len(message.Exten) >= number_count:
-            call_id = message.Linkedid
-            phone_number = message.Exten
 
-            if phone_number.startswith('9'):
-                phone_number = phone_number[1:]
+    # Обработка событий исходящего вызова
+    elif message.Context == 'from-internal' and message.Exten not in ['s', '*8'] and len(message.Exten) >= number_count:
+        call_id = message.Linkedid
+        phone_number = message.Exten
 
-            # Поиск пользователя
-            bitrix_user_id = find_user_id(message.CallerIDNum)
-            # Регистрация звонка
-            bitrix_call_id = register_call(bitrix_user_id, phone_number, 1)
-            calls_data[call_id] =  {"phone_number": phone_number, "bitrix_call_id": bitrix_call_id, 'bitrix_user_id': bitrix_user_id}
-            print('Исходящий: ', call_id, calls_data[call_id])
-        else:
-            print(f'Длина номера {message.Exten} меньше минимального значения: {number_count}')
+        if phone_number.startswith('9'):
+            phone_number = phone_number[1:]
+
+        bitrix_user_id = find_user_id(message.CallerIDNum)
+        bitrix_call_id = register_call(bitrix_user_id, phone_number, 1)
+        calls_data[call_id] =  {"phone_number": phone_number, "bitrix_call_id": bitrix_call_id, 'bitrix_user_id': bitrix_user_id}
+        print('Исходящий: ', call_id, calls_data[call_id])
+
 
 # Подписка на событие вызов принят
 @manager.register_event('BridgeEnter')
 def BridgeEnter(manager, message):
     # Для входящих вызовов
     call_id = message.Linkedid
-    if calls_data[call_id]["bitrix_user_id"] is None and message.ChannelStateDesc == 'Up' and message.Context == 'macro-dial-one' and message.CallerIDNum != calls_data[call_id]["phone_number"]:
+    if call_id in calls_data:
+        if calls_data[call_id]["bitrix_user_id"] is None and message.ChannelStateDesc == 'Up' and message.Context == 'macro-dial-one' and message.CallerIDNum != calls_data[call_id]["phone_number"]:
+            calls_data[call_id]["bitrix_user_id"] = find_user_id(message.CallerIDNum)
+            calls_data[call_id]["bitrix_call_id"] = register_call(calls_data[call_id]["bitrix_user_id"], calls_data[call_id]["phone_number"], 2)
+
+            print('Оператор ответил: ', call_id, calls_data[call_id])
+
+        # Для исходящих звонков
+        elif message.ChannelStateDesc == 'Up' and message.Context == 'macro-dialout-trunk':
+            print('Абонент ответил: ', call_id, calls_data[call_id])
+
+
+# Перехваченный вызов
+@manager.register_event('Pickup')
+def Pickup(manager, message):
+    call_id = message.TargetLinkedid
+    if call_id in calls_data:
         calls_data[call_id]["bitrix_user_id"] = find_user_id(message.CallerIDNum)
         calls_data[call_id]["bitrix_call_id"] = register_call(calls_data[call_id]["bitrix_user_id"], calls_data[call_id]["phone_number"], 2)
+        print(f'Вызов перехвачен номером {message.CallerIDNum}')
 
-        print('Оператор ответил: ', call_id, calls_data[call_id])
-
-    # Для исходящих звонков
-    elif message.ChannelStateDesc == 'Up' and message.Context == 'macro-dialout-trunk':
-        print('Абонент ответил: ', call_id, calls_data[call_id])
 
 # Событие VarSet (MIXMONITOR_FILENAME)
 @manager.register_event('VarSet')
 def VarSetEvent(manager, message):
     call_id = message.Linkedid
-    if message.Variable == 'MIXMONITOR_FILENAME':
+    if message.Variable == 'MIXMONITOR_FILENAME' and call_id in calls_data:
         calls_data[call_id]["file_patch"] = message.Value
         calls_data[call_id]["file_name"] = os.path.basename(message.Value)
 
