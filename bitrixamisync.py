@@ -127,7 +127,7 @@ def CelEvent(manager, message):
         if message.EventName == 'CHAN_START' and message.Context == 'from-trunk':
             calls_data[call_id]["start_time"] = datetime.strptime(message.EventTime, '%Y-%m-%d %H:%M:%S')
 
-        if message.EventName == 'CHAN_END' and message.Context == 'from-internal' and message.Exten != 'h':
+        if message.EventName == 'CHAN_END' and message.Application == 'AppDial' and not calls_data[call_id]["bitrix_user_id"]:
             calls_data[call_id]["bitrix_user_id"] = find_user_id(message.CallerIDNum)
             calls_data[call_id]["bitrix_call_id"] = register_call(calls_data[call_id]["bitrix_user_id"], calls_data[call_id]["phone_number"], 2)
             print(f'Вызов не отвечен номером {message.CallerIDNum}')
