@@ -30,7 +30,7 @@ attachRecord = 'telephony.externalCall.attachRecord'
 def find_user_id(internal_number):
     all_users = requests.post(bitrix_url + 'user.get', {'ACTIVE': 'true'}).json()['result']
     for user in all_users:
-        if user.get('UF_PHONE_INNER') == internal_number:
+        if internal_number and user.get('UF_PHONE_INNER') == internal_number:
             return user['ID']
     return all_users[0]['ID']
 
