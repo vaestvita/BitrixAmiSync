@@ -22,13 +22,11 @@ number_count = int(config.get('asterisk', 'number_count'))
 
 # Подключение к битрикс
 bitrix_url = config.get('bitrix', 'url')
-register = 'telephony.externalcall.register'
-finish = 'telephony.externalcall.finish'
-attachRecord = 'telephony.externalCall.attachRecord'
+
 
 # Поиск пользователя Битрикс24
 def find_user_id(internal_number):
-    all_users = requests.post(bitrix_url + 'user.get', {'ACTIVE': 'true'}).json()['result']
+    all_users = requests.post(f'{bitrix_url}user.get', {'ACTIVE': 'true'}).json()['result']
     for user in all_users:
         if internal_number and user.get('UF_PHONE_INNER') == internal_number:
             return user['ID']
@@ -43,7 +41,7 @@ def register_call(bitrix_user_id, phone_number, call_type):
         'SHOW': '0'
     }
 
-    bitrix_call_id = requests.post(bitrix_url + register, register_param).json()['result']['CALL_ID']
+    bitrix_call_id = requests.post(f'{bitrix_url}telephony.externalcall.register', register_param).json()['result']['CALL_ID']
     return bitrix_call_id
 
 # Ассоциативный массив 
@@ -169,7 +167,7 @@ def CelEvent(manager, message):
             'STATUS_CODE':calls_data[call_id]["dial_status"]
             }
 
-            response_finish = requests.post(bitrix_url + finish, finish_param)
+            response_finish = requests.post(f'{bitrix_url}telephony.externalcall.finish', finish_param)
             print(f"Response from finish: {response_finish.json()}")
 
             # Отправка файла записи
@@ -183,7 +181,7 @@ def CelEvent(manager, message):
                     'FILE_CONTENT': encoded_file
                 }
 
-                response_attachRecord = requests.post(bitrix_url + attachRecord, file_param)
+                response_attachRecord = requests.post(f'{bitrix_url}telephony.externalCall.attachRecord', file_param)
                 print(f"Response from attachRecord: {response_attachRecord.json()}")
         
                 # Удаление записи из массива
