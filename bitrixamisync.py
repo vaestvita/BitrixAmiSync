@@ -27,6 +27,8 @@ RECORDS_URL = config.get('asterisk', 'records_url')
 
 # Подключение к битрикс
 BITRIX_URL = config.get('bitrix', 'url')
+CRM_CREATE = config.get('bitrix', 'crm_create')
+SHOW_CARD = config.get('bitrix', 'show_card')
 
 calls_data = {}
 
@@ -61,7 +63,8 @@ def register_call(bitrix_user_id, phone_number, call_type):
         'USER_ID': bitrix_user_id,
         'PHONE_NUMBER': phone_number,
         'TYPE': call_type,
-        'SHOW': '0'
+        'SHOW': SHOW_CARD,
+        'CRM_CREATE': CRM_CREATE
     }
 
     call_data = requests.post(f'{BITRIX_URL}telephony.externalcall.register', 
