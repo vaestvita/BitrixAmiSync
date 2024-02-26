@@ -2,7 +2,7 @@
 
 Скрипт позволяет отправлять историю звонков и файлы записей из Asterisk (FreePBX) в Битрикс24
 
-Событие OnExternalCallStart (Click 2 Coll) с ним работать не будет, необходимо создать локлаьное приложение [THOTH](https://github.com/vaestvita/thoth)
+Событие OnExternalCallStart (Click 2 Coll) с ним работать не будет, необходимо создать локальное приложение [THOTH](https://github.com/vaestvita/thoth)
  
 Заполнить данные в config.ini
 
