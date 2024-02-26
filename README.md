@@ -1,30 +1,13 @@
 # BitrixAmiSync
 
+Скрипт позволяет отправлять историю звонков и файлы записей из Asterisk (FreePBX) в Битрикс24
+
+Событие OnExternalCallStart (Click 2 Coll) с ним работать не будет, необходимо создать локлаьное приложение [THOTH](https://github.com/vaestvita/thoth)
+ 
 Заполнить данные в config.ini
 
-```
-[asterisk]
-ip = localhost
-username = bitrixamisync
-secret = 
-number_count = 6
 
-[bitrix]
-url = 
-```
-
-Передача информации о звонках из Asterisk в Битрикс24 через AMI
-
-### cel_general_custom.conf
-
-```
-[general]+
-apps=dial
-[manager]+
-enabled=yes
-```
-
-#### AMI менеджер bitrixamisync (read CALL, Cdr, dialplan)
+### AMI менеджер bitrixamisync (read CALL, Cdr, dialplan)
 
 /admin/config.php?display=manager
 
@@ -63,3 +46,24 @@ sudo systemctl daemon-reload
 sudo systemctl start bitrixamisync
 sudo systemctl enable bitrixamisync
 ```
+
+### Пример конфигурации Apache 
+
+Конфигурация открывает доступ к файлам записей звонков по адресу http://hostname/monitor
+
+ВНИМАНИЕ - если у вас открыты WWW порты (80, 443), то обязательно настройте ACL, иначе ваши файлы станут всеобщим достоянием
+
+nano /etc/httpd/conf.d/monitor.conf
+
+```
+    Alias /monitor /var/spool/asterisk/monitor
+
+    <Directory /var/spool/asterisk/monitor>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+        IndexOptions FancyIndexing SuppressRules
+    </Directory>
+
+```
+systemctl restart httpd
