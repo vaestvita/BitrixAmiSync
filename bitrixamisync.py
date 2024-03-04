@@ -18,12 +18,8 @@ HOST = config.get('asterisk', 'host')
 PORT = config.get('asterisk', 'port')
 USER = config.get('asterisk', 'username')
 SECRET = config.get('asterisk', 'secret')
-
-# Количество символов в номере
-INTERNAL_COUNT = int(config.get('asterisk', 'internal_count'))
-
-# Веб-адрес каталога записей
 RECORDS_URL = config.get('asterisk', 'records_url')
+INTERNAL_COUNT = int(config.get('asterisk', 'internal_count'))
 
 # Подключение к битрикс
 BITRIX_URL = config.get('bitrix', 'url')
@@ -31,16 +27,24 @@ CRM_CREATE = config.get('bitrix', 'crm_create')
 SHOW_CARD = config.get('bitrix', 'show_card')
 DEFAULT_USER_ID = config.get('bitrix', 'default_user_id')
 
+def to_list(input_string):
+    return [item.strip() for item in input_string.split(',')]
+
+INVOUND_CONTEXTS = to_list(config.get('asterisk', 'invound_contexts'))
+INTERNAL_CONTEXTS = to_list(config.get('asterisk', 'internal_contexts'))
+HANGUP_DELISTING = to_list(config.get('asterisk', 'hangup_delisting'))
+
 calls_data = {}
 
 dial_status = {
+    '3': 503,
     '16': 200,
     '17': 486,
     '19': 304,
     '20': 480,
     '21': 304,
     '31': 200,
-    '34': 503,
+    '34': 404,
     '38': 503,
     '127': 603
 }
@@ -123,11 +127,11 @@ async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
     if message.Event == 'Newchannel' and message.Exten != 's':
 
-        if message.Context in ['from-trunk', 'from-pstn']:
+        if message.Context in INVOUND_CONTEXTS:
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
-        if message.Context in ['from-internal'] and len(message.Exten) > INTERNAL_COUNT:
+        if message.Context in INTERNAL_CONTEXTS and len(message.Exten) > INTERNAL_COUNT:
             calls_data[call_id] = {'start_time': time.time()}
             bitrix_user_id = find_user_id(message.CallerIDNum)
             bitrix_call_id = register_call(bitrix_user_id, message.Exten, 1)
@@ -149,11 +153,11 @@ async def ami_callback(mngr: Manager, message: Message):
         if message.Priority != '1':
             return
         # Исходящий
-        if message.Context in ['from-trunk', 'from-pstn']:
+        if message.Context in INVOUND_CONTEXTS:
             calls_data[call_id]['call_status'] = 200
 
         # Входящий
-        elif message.Context in ['macro-dial-one', 'from-internal']:
+        elif message.Context in INTERNAL_CONTEXTS:
             bitrix_user_id = find_user_id(message.CallerIDNum)
             bitrix_call_id = register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
             calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
@@ -161,13 +165,12 @@ async def ami_callback(mngr: Manager, message: Message):
             calls_data[call_id]['call_status'] = 200
 
     
-    elif message.Event == 'Hangup' and message.Context not in ['from-internal', 'from-queue', 'ext-local']:
-        
+    elif message.Event == 'Hangup' and message.Context not in HANGUP_DELISTING:
         call_data = calls_data.get(call_id, {})
         # Установка статуса звонка, если он еще не установлен
         if 'call_status' not in call_data:
-            call_data["call_status"] = 304 if 'bitrix_user_id' in call_data else dial_status.get(message.Cause, '603')
-        
+            call_data["call_status"] = dial_status.get(message.Cause, '603')
+
         # Добавление bitrix_user_id, если его нет
         if 'bitrix_user_id' not in call_data:
             user_id_context = 'macro-dial-one' if message.Context in ['macro-dial-one'] else None
@@ -191,19 +194,20 @@ async def ami_callback(mngr: Manager, message: Message):
 
         requests.post(f'{BITRIX_URL}telephony.externalcall.finish', finish_param)
 
+        # передача записи звонка
         if call_data["call_status"] == 200:
             file_url = f'{RECORDS_URL}{call_data["file_patch"]}'
             response = requests.get(file_url)
             if response.status_code == 200:
                 encoded_file = base64.b64encode(response.content)
 
-            file_data = {
-                'CALL_ID': call_data["bitrix_call_id"],
-                'FILENAME': call_data["file_name"],
-                'FILE_CONTENT': encoded_file
-            }
+                file_data = {
+                    'CALL_ID': call_data["bitrix_call_id"],
+                    'FILENAME': call_data["file_name"],
+                    'FILE_CONTENT': encoded_file
+                }
 
-            response_attachRecord = requests.post(f'{BITRIX_URL}telephony.externalCall.attachRecord', file_data).json()
+                requests.post(f'{BITRIX_URL}telephony.externalCall.attachRecord', file_data).json()
        
         del calls_data[call_id]
         print(calls_data)

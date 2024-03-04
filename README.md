@@ -5,9 +5,35 @@
 Скрипт позволяет отправлять историю звонков и файлы записей из Asterisk (FreePBX) в Битрикс24
 
 Событие OnExternalCallStart (Click 2 Coll) с ним работать не будет, необходимо создать локальное приложение [THOTH](https://github.com/vaestvita/thoth)
- 
-Заполнить данные в config.ini
 
+### Установка 
+
+```
+cd /opt
+git clone https://github.com/vaestvita/BitrixAmiSync.git
+cd BitrixAmiSync
+cp config_example.ini config.ini
+nano config.ini
+```
+ 
+### Заполнить данные в [config.ini](config_example.ini)
+
+Описание параметров [bitrix]
++ [url] - Адрес воходящего вебхука. Интеграции > Rest API > Другое > Входящий вебхук (Необходимые права: crm, user, telephony)
++ [crm_create] - Создавать или нет сущность CRM (1/0)
++ [show_card] - Показывать или нет карточку клиента (1/0)
++ [default_user_id] - ID пользователя по умолчанию для привязки потерянных звонкв. Если параметр не установлен будет использоваться ID первого активного пользователя.
+
+Описание параметров [asterisk]
++ [records_url] - URL папки с записями звонков
++ [host] - адрес ATC
++ [port] - AMI порт
++ [username] - AMI пользователь
++ [secret] - AMI пароль
++ [internal_count] - количество знаков внутренних номеров (для фильтрации)
++ [internal_contexts] - список контектов внутренних вызовов 
++ [invound_contexts] - список контектов внешних вызовов
++ [hangup_delisting] - список контекстов для исключения в событии hangup
 
 ### AMI менеджер bitrixamisync (read CALL, Cdr, dialplan)
 
@@ -33,8 +59,8 @@ nano /etc/systemd/system/bitrixamisync.service
 Description=BitrixAmiSync
 
 [Service]
-ExecStart=/usr/bin/python3 /home/api/bitrixamisync.py
-WorkingDirectory=/home/api/
+ExecStart=/usr/bin/python3 /opt/BitrixAmiSync/bitrixamisync.py
+WorkingDirectory=/opt/BitrixAmiSync/
 Restart=always
 User=nobody
 Group=nobody
