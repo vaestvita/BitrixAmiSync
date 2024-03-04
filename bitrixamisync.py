@@ -30,7 +30,7 @@ DEFAULT_USER_ID = config.get('bitrix', 'default_user_id')
 def to_list(input_string):
     return [item.strip() for item in input_string.split(',')]
 
-INVOUND_CONTEXTS = to_list(config.get('asterisk', 'invound_contexts'))
+INBOUND_CONTEXTS = to_list(config.get('asterisk', 'inbound_contexts'))
 INTERNAL_CONTEXTS = to_list(config.get('asterisk', 'internal_contexts'))
 HANGUP_DELISTING = to_list(config.get('asterisk', 'hangup_delisting'))
 
@@ -127,7 +127,7 @@ async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
     if message.Event == 'Newchannel' and message.Exten != 's':
 
-        if message.Context in INVOUND_CONTEXTS:
+        if message.Context in INBOUND_CONTEXTS:
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
@@ -153,7 +153,7 @@ async def ami_callback(mngr: Manager, message: Message):
         if message.Priority != '1':
             return
         # Исходящий
-        if message.Context in INVOUND_CONTEXTS:
+        if message.Context in INBOUND_CONTEXTS:
             calls_data[call_id]['call_status'] = 200
 
         # Входящий

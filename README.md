@@ -31,8 +31,8 @@ nano config.ini
 + [username] - AMI пользователь
 + [secret] - AMI пароль
 + [internal_count] - количество знаков внутренних номеров (для фильтрации)
-+ [internal_contexts] - список контектов внутренних вызовов 
-+ [invound_contexts] - список контектов внешних вызовов
++ [internal_contexts] - список контекстов тектов внутренних вызовов 
++ [inbound_contexts] - список контекстов внешних вызовов
 + [hangup_delisting] - список контекстов для исключения в событии hangup
 
 ### AMI менеджер bitrixamisync (read CALL, Cdr, dialplan)
