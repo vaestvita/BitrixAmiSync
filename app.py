@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
 import os
 import asyncio 
 import base64
@@ -9,6 +7,8 @@ import time
 import configparser
 
 from panoramisk import Manager, Message
+
+import bitrix
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -20,12 +20,6 @@ USER = config.get('asterisk', 'username')
 SECRET = config.get('asterisk', 'secret')
 RECORDS_URL = config.get('asterisk', 'records_url')
 INTERNAL_COUNT = int(config.get('asterisk', 'internal_count'))
-
-# Подключение к битрикс
-BITRIX_URL = config.get('bitrix', 'url')
-CRM_CREATE = config.get('bitrix', 'crm_create')
-SHOW_CARD = config.get('bitrix', 'show_card')
-DEFAULT_USER_ID = config.get('bitrix', 'default_user_id')
 
 def to_list(input_string):
     return [item.strip() for item in input_string.split(',')]
@@ -48,38 +42,6 @@ dial_status = {
     '38': 503,
     '127': 603
 }
-
-# Поиск пользователя Битрикс24
-def find_user_id(internal_number):
-    if internal_number is None and DEFAULT_USER_ID:
-        return DEFAULT_USER_ID
-    users_data = requests.post(f'{BITRIX_URL}user.get', {'ACTIVE': 'true'}).json()
-    if 'result' in users_data:
-        all_users = users_data['result']
-        for user in all_users:
-            if internal_number and user.get('UF_PHONE_INNER') == internal_number:
-                return user['ID']
-        return all_users[0]['ID']
-    else:
-        print('ОШИБКА!!!!! find_user_id', users_data)
-
-
-# Регистрация звонка в Битрикс24
-def register_call(bitrix_user_id, phone_number, call_type):
-    register_param = {
-        'USER_ID': bitrix_user_id,
-        'PHONE_NUMBER': phone_number,
-        'TYPE': call_type,
-        'SHOW': SHOW_CARD,
-        'CRM_CREATE': CRM_CREATE
-    }
-
-    call_data = requests.post(f'{BITRIX_URL}telephony.externalcall.register', 
-                              json=register_param).json()
-    if 'result' in call_data:
-        return call_data['result']['CALL_ID']
-    else:
-        print('ОШИБКА!!!!! register_call', phone_number, call_data)
 
 
 manager = Manager(
@@ -125,16 +87,18 @@ async def on_shutdown(mngr: Manager):
 @manager.register_event('*')  # Register all events
 async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
-    if message.Event == 'Newchannel' and message.Exten != 's':
+    if message.Event == 'Newchannel':
 
         if message.Context in INBOUND_CONTEXTS:
+            if call_id in calls_data:
+                return            
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
         if message.Context in INTERNAL_CONTEXTS and len(message.Exten) > INTERNAL_COUNT:
             calls_data[call_id] = {'start_time': time.time()}
-            bitrix_user_id = find_user_id(message.CallerIDNum)
-            bitrix_call_id = register_call(bitrix_user_id, message.Exten, 1)
+            bitrix_user_id = bitrix.get_user_id(message.CallerIDNum)
+            bitrix_call_id = bitrix.register_call(bitrix_user_id, message.Exten, 1)
             calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
             calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
             calls_data[call_id]['phone_number'] = message.Exten
@@ -158,57 +122,45 @@ async def ami_callback(mngr: Manager, message: Message):
 
         # Входящий
         elif message.Context in INTERNAL_CONTEXTS:
-            bitrix_user_id = find_user_id(message.CallerIDNum)
-            bitrix_call_id = register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
+            bitrix_user_id = bitrix.get_user_id(message.CallerIDNum)
+            bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
             calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
             calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
             calls_data[call_id]['call_status'] = 200
 
-    
+    # Завершение звонка
     elif message.Event == 'Hangup' and message.Context not in HANGUP_DELISTING:
-        call_data = calls_data.get(call_id, {})
+        call_data = calls_data.get(call_id)
         # Установка статуса звонка, если он еще не установлен
         if 'call_status' not in call_data:
             call_data["call_status"] = dial_status.get(message.Cause, '603')
 
         # Добавление bitrix_user_id, если его нет
         if 'bitrix_user_id' not in call_data:
-            user_id_context = 'macro-dial-one' if message.Context in ['macro-dial-one'] else None
-            bitrix_user_id = find_user_id(message.CallerIDNum if user_id_context else None)
+            internal_phone = None
+            if message.Context == 'macro-dial-one':
+                internal_phone = message.CallerIDNum
+            bitrix_user_id = bitrix.get_user_id(internal_phone)
             call_data['bitrix_user_id'] = bitrix_user_id
             
             # Установка статуса звонка в 304, если контекст не 'macro-dial-one'
-            if not user_id_context:
+            if message.Context != 'macro-dial-one':
                 call_data["call_status"] = 304
             
             # Регистрация звонка в Bitrix
-            call_data["bitrix_call_id"] = register_call(bitrix_user_id, call_data.get('phone_number'), 2)
+            call_data["bitrix_call_id"] = bitrix.register_call(bitrix_user_id, call_data.get('phone_number'), 2)
 
         # Закрытие звонка в битрикс
-        finish_param = {
-        'CALL_ID': call_data["bitrix_call_id"],
-        'USER_ID': call_data["bitrix_user_id"],
-        'DURATION': round(time.time() - call_data["start_time"]),
-        'STATUS_CODE': call_data["call_status"]
-        }
+        if bitrix.finish_call(call_data) and call_data["call_status"] == 200:
 
-        requests.post(f'{BITRIX_URL}telephony.externalcall.finish', finish_param)
-
-        # передача записи звонка
-        if call_data["call_status"] == 200:
+            # передача записи звонка
             file_url = f'{RECORDS_URL}{call_data["file_patch"]}'
             response = requests.get(file_url)
             if response.status_code == 200:
                 encoded_file = base64.b64encode(response.content)
 
-                file_data = {
-                    'CALL_ID': call_data["bitrix_call_id"],
-                    'FILENAME': call_data["file_name"],
-                    'FILE_CONTENT': encoded_file
-                }
+                bitrix.attachRecord(call_data, encoded_file)
 
-                requests.post(f'{BITRIX_URL}telephony.externalCall.attachRecord', file_data).json()
-       
         del calls_data[call_id]
         print(calls_data)
 

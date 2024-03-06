@@ -1,10 +1,10 @@
 # BitrixAmiSync
 
-Протестировано с Asterisk v. 18, 20 (FreePBX) - если названия используемых в фильтрах контекстов, отличаются от используемых в вашей системе - замените их.
+Протестировано с Asterisk v. 16, 18, 20 (FreePBX) - если названия используемых в фильтрах контекстов, отличаются от используемых в вашей системе - замените их.
 
 Скрипт позволяет отправлять историю звонков и файлы записей из Asterisk (FreePBX) в Битрикс24
 
-Событие OnExternalCallStart (Click 2 Coll) с ним работать не будет, необходимо создать локальное приложение [THOTH](https://github.com/vaestvita/thoth)
+Событие OnExternalCallStart (Click 2 Call) с ним работать не будет, необходимо создать локальное приложение [THOTH](https://github.com/vaestvita/thoth)
 
 ### Установка 
 
@@ -31,7 +31,7 @@ nano config.ini
 + [username] - AMI пользователь
 + [secret] - AMI пароль
 + [internal_count] - количество знаков внутренних номеров (для фильтрации)
-+ [internal_contexts] - список контекстов тектов внутренних вызовов 
++ [internal_contexts] - список контекстов внутренних вызовов 
 + [inbound_contexts] - список контекстов внешних вызовов
 + [hangup_delisting] - список контекстов для исключения в событии hangup
 
@@ -59,7 +59,7 @@ nano /etc/systemd/system/bitrixamisync.service
 Description=BitrixAmiSync
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/BitrixAmiSync/bitrixamisync.py
+ExecStart=/usr/bin/python3 /opt/BitrixAmiSync/app.py
 WorkingDirectory=/opt/BitrixAmiSync/
 Restart=always
 User=nobody
