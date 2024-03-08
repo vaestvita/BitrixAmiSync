@@ -94,3 +94,14 @@ def attachRecord(call_data, encoded_file):
     }
 
     requests.post(f'{BITRIX_URL}telephony.externalCall.attachRecord', file_data).json()
+
+
+def show_card(call_id, user_id):
+    call_data = {
+        'CALL_ID': call_id,
+        'USER_ID': user_id
+    }
+
+    response = requests.post(f'{BITRIX_URL}telephony.externalcall.show', call_data).json()
+
+    print('WWWWWWWWW', response)

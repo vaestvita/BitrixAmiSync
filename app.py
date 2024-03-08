@@ -91,7 +91,7 @@ async def ami_callback(mngr: Manager, message: Message):
 
         if message.Context in INBOUND_CONTEXTS:
             if call_id in calls_data:
-                return            
+                return
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
