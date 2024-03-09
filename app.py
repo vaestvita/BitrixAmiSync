@@ -94,20 +94,22 @@ async def ami_callback(mngr: Manager, message: Message):
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
-        # Регистрация звонка и карточка
+        # Регистрация входящего звонка и карточка
         elif message.Context == 'from-internal':
             if message.Exten == 's':
                 bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
+                calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+                
                 # Для первого в очереди или единственного вн номера
                 if 'bitrix_call_id' not in calls_data[call_id]:
-                    calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
                     bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
                     calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
 
+                if deafault_user:
+                    return
                 # Для последующих в очереди или группе показываем карточку
                 else:
-                    if not deafault_user:
-                        bitrix.card_action(calls_data[call_id]['bitrix_call_id'], bitrix_user_id, 'show')
+                    bitrix.card_action(calls_data[call_id]['bitrix_call_id'], bitrix_user_id, 'show')
 
             # Исходящий звонок - регистрация
             elif len(message.Exten) > INTERNAL_COUNT:
@@ -117,19 +119,22 @@ async def ami_callback(mngr: Manager, message: Message):
                 bitrix_call_id = bitrix.register_call(bitrix_user_id, message.Exten, 1)
                 calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
     
-    
-    elif call_id not in calls_data:
-        return
-    
     # Получение пути файла записи разговора
     elif message.Variable == 'MIXMONITOR_FILENAME':
         if 'file_patch' not in calls_data[call_id]:
             calls_data[call_id]['file_patch'] = message.Value.split("monitor/")[1]
             calls_data[call_id]['file_name'] = os.path.basename(message.Value)
 
+    # Перехват звонка
+    elif message.Event == 'Pickup':
+        call_id = message.TargetLinkedid
+        bitrix.card_action(calls_data[call_id]['bitrix_call_id'], calls_data[call_id]['bitrix_user_id'], 'hide')
+        bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
+        calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+    
     # Ответ на звонок
     elif message.Event == 'BridgeEnter':
-        if message.Priority != '1':
+        if message.Priority != '1' or message.Linkedid not in calls_data:
             return
         if message.Context == 'macro-dial-one':
             bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
@@ -137,6 +142,13 @@ async def ami_callback(mngr: Manager, message: Message):
 
         calls_data[call_id]['call_status'] = 200
 
+    # Трансфер звонка
+    elif message.Event == 'BlindTransfer' and message.Result == 'Success':
+        call_id = message.TransfererLinkedid
+        bitrix.card_action(calls_data[call_id]['bitrix_call_id'], calls_data[call_id]['bitrix_user_id'], 'hide')
+        bitrix_user_id, deafault_user = bitrix.get_user_id(message.Extension)
+        calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+    
     # Завершение звонка
     elif message.Event == 'Hangup':
         call_data = calls_data.get(call_id)
@@ -149,9 +161,7 @@ async def ami_callback(mngr: Manager, message: Message):
                     return
                 bitrix.card_action(call_data['bitrix_call_id'], bitrix_user_id, 'hide')
 
-
-        if message.Context not in HANGUP_DELISTING:
-
+        elif message.Context not in HANGUP_DELISTING:
            # Установка статуса звонка, если он еще не установлен
             if 'call_status' not in call_data:
                 call_data["call_status"] = dial_status.get(message.Cause, '304')

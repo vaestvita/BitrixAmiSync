@@ -110,4 +110,4 @@ def card_action(call_id, user_id, action):
         'USER_ID': user_id
     }
 
-    response = requests.post(f'{BITRIX_URL}telephony.externalcall.{action}', call_data).json()
+    requests.post(f'{BITRIX_URL}telephony.externalcall.{action}', call_data).json()
