@@ -4,3 +4,5 @@ test.py
 bitrix_users.json
 __pycache__/
 add_users.py
+.vscode/
+users.txt

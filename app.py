@@ -25,14 +25,12 @@ def to_list(input_string):
     return [item.strip() for item in input_string.split(',')]
 
 INBOUND_CONTEXTS = to_list(config.get('asterisk', 'inbound_contexts'))
-INTERNAL_CONTEXTS = to_list(config.get('asterisk', 'internal_contexts'))
 HANGUP_DELISTING = to_list(config.get('asterisk', 'hangup_delisting'))
 
 calls_data = {}
 
 dial_status = {
     '3': 503,
-    '16': 200,
     '17': 486,
     '19': 304,
     '20': 480,
@@ -89,19 +87,36 @@ async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
     if message.Event == 'Newchannel':
 
+        # Входящий звонок
         if message.Context in INBOUND_CONTEXTS:
             if call_id in calls_data:
                 return
             calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
-        if message.Context in INTERNAL_CONTEXTS and len(message.Exten) > INTERNAL_COUNT:
-            calls_data[call_id] = {'start_time': time.time()}
-            bitrix_user_id = bitrix.get_user_id(message.CallerIDNum)
-            bitrix_call_id = bitrix.register_call(bitrix_user_id, message.Exten, 1)
-            calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
-            calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
-            calls_data[call_id]['phone_number'] = message.Exten
+        # Регистрация звонка и карточка
+        elif message.Context == 'from-internal':
+            if message.Exten == 's':
+                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
+                # Для первого в очереди или единственного вн номера
+                if 'bitrix_call_id' not in calls_data[call_id]:
+                    calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+                    bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
+                    calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
+
+                # Для последующих в очереди или группе показываем карточку
+                else:
+                    if not deafault_user:
+                        bitrix.card_action(calls_data[call_id]['bitrix_call_id'], bitrix_user_id, 'show')
+
+            # Исходящий звонок - регистрация
+            elif len(message.Exten) > INTERNAL_COUNT:
+                calls_data[call_id] = {'start_time': time.time()}
+                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
+                calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+                bitrix_call_id = bitrix.register_call(bitrix_user_id, message.Exten, 1)
+                calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
+    
     
     elif call_id not in calls_data:
         return
@@ -116,53 +131,54 @@ async def ami_callback(mngr: Manager, message: Message):
     elif message.Event == 'BridgeEnter':
         if message.Priority != '1':
             return
-        # Исходящий
-        if message.Context in INBOUND_CONTEXTS:
-            calls_data[call_id]['call_status'] = 200
-
-        # Входящий
-        elif message.Context in INTERNAL_CONTEXTS:
-            bitrix_user_id = bitrix.get_user_id(message.CallerIDNum)
-            bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
+        if message.Context == 'macro-dial-one':
+            bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
             calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
-            calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
-            calls_data[call_id]['call_status'] = 200
+
+        calls_data[call_id]['call_status'] = 200
 
     # Завершение звонка
-    elif message.Event == 'Hangup' and message.Context not in HANGUP_DELISTING:
+    elif message.Event == 'Hangup':
         call_data = calls_data.get(call_id)
-        # Установка статуса звонка, если он еще не установлен
-        if 'call_status' not in call_data:
-            call_data["call_status"] = dial_status.get(message.Cause, '603')
+        if message.Context == 'from-internal':
 
-        # Добавление bitrix_user_id, если его нет
-        if 'bitrix_user_id' not in call_data:
-            internal_phone = None
-            if message.Context == 'macro-dial-one':
-                internal_phone = message.CallerIDNum
-            bitrix_user_id = bitrix.get_user_id(internal_phone)
-            call_data['bitrix_user_id'] = bitrix_user_id
-            
-            # Установка статуса звонка в 304, если контекст не 'macro-dial-one'
-            if message.Context != 'macro-dial-one':
-                call_data["call_status"] = 304
-            
-            # Регистрация звонка в Bitrix
-            call_data["bitrix_call_id"] = bitrix.register_call(bitrix_user_id, call_data.get('phone_number'), 2)
+            # Если перезагрузка звонка в очереди или ответил кто-то, закрываем карточку
+            if message.ChannelState in ['5']:
+                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
+                if deafault_user:
+                    return
+                bitrix.card_action(call_data['bitrix_call_id'], bitrix_user_id, 'hide')
 
-        # Закрытие звонка в битрикс
-        if bitrix.finish_call(call_data) and call_data["call_status"] == 200:
 
-            # передача записи звонка
-            file_url = f'{RECORDS_URL}{call_data["file_patch"]}'
-            response = requests.get(file_url)
-            if response.status_code == 200:
-                encoded_file = base64.b64encode(response.content)
+        if message.Context not in HANGUP_DELISTING:
 
-                bitrix.attachRecord(call_data, encoded_file)
+           # Установка статуса звонка, если он еще не установлен
+            if 'call_status' not in call_data:
+                call_data["call_status"] = dial_status.get(message.Cause, '304')
 
-        del calls_data[call_id]
-        print(calls_data)
+            # Добавление пользователя по умолчанию если вызов сброшен до регистрации
+            if 'bitrix_user_id' not in call_data:
+                bitrix_user_id, deafault_user = bitrix.get_user_id(None)
+                call_data['bitrix_user_id'] = bitrix_user_id
+                bitrix_call_id = bitrix.register_call(bitrix_user_id, call_data['phone_number'], 2)
+                call_data['bitrix_call_id'] = bitrix_call_id
+
+            # Закрытие звонка в битрикс
+            if bitrix.finish_call(call_data) and call_data["call_status"] == 200:
+
+                # передача записи звонка
+                if 'file_patch' not in call_data:
+                    return
+                file_url = f'{RECORDS_URL}{call_data["file_patch"]}'
+                response = requests.get(file_url)
+                if response.status_code == 200:
+                    encoded_file = base64.b64encode(response.content)
+
+                    bitrix.attachRecord(call_data, encoded_file)
+
+            del calls_data[call_id]
+            print(calls_data)
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

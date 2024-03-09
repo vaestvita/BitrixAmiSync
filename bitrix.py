@@ -16,40 +16,48 @@ DEFAULT_USER_ID = config.get('bitrix', 'default_user_id')
 # Путь к файлу с пользователями Битрикс
 BITRIX_USERS_FILE = 'bitrix_users.json'
 
+
 def update_bitrix_users_file():
-    user_data = requests.post(f'{BITRIX_URL}user.get', {'ACTIVE': 'true'}).json()
-    if 'result' in user_data:
-        all_users = user_data['result']
-        bitrix_users = {user['UF_PHONE_INNER']: user['ID'] for user in all_users}
-        with open(BITRIX_USERS_FILE, 'w') as file:
-            json.dump(bitrix_users, file)
-    else:
-        print('Ошибка при получении списка пользователей', user_data)
+    start = 0
+    bitrix_users = {}
+
+    while True:
+        response = requests.post(f'{BITRIX_URL}user.get', data={'ACTIVE': 'true', 'start': start}).json()
+        if 'result' in response:
+            users = response['result']
+            for user in users:
+                if user.get('UF_PHONE_INNER'):
+                    bitrix_users[user.get('UF_PHONE_INNER')] = user.get('ID')
+            start += len(users)
+            if 'next' not in response:
+                break
+        else:
+            print('Ошибка при получении списка пользователей', response)
+            break
+
+    with open(BITRIX_USERS_FILE, 'w') as file:
+        json.dump(bitrix_users, file)
 
 
 def get_user_id(internal_number):
-    # Проверка и инициализация файла с пользователями
-    if not os.path.exists(BITRIX_USERS_FILE) or os.path.getsize(BITRIX_USERS_FILE) == 0:
-        update_bitrix_users_file()
-
-    bitrix_users = {}
-
-    # Попытка поиска пользователя до двух раз: до и после обновления файла
+    # Загружаем или обновляем данные пользователей
     for _ in range(2):
-        with open(BITRIX_USERS_FILE, 'r') as file:
-            bitrix_users = json.load(file)
+        try:
+            with open(BITRIX_USERS_FILE, 'r') as file:
+                bitrix_users = json.load(file)
+        except (FileNotFoundError, json.JSONDecodeError):
+            bitrix_users = {}
 
-        if internal_number is None:
-            return globals().get('DEFAULT_USER_ID', next(iter(bitrix_users.values()), None))
-
-        if str(internal_number) in bitrix_users:
-            return bitrix_users[str(internal_number)]
+        # Проверяем, предоставлен ли номер и есть ли он в bitrix_users
+        if internal_number and str(internal_number) in bitrix_users:
+            return bitrix_users[str(internal_number)], False
 
         # Обновляем файл только если пользователь не найден в первой итерации
         update_bitrix_users_file()
 
-    # Возвращаем DEFAULT_USER_ID если пользователь не найден после обновления
-    return globals().get('DEFAULT_USER_ID', next(iter(bitrix_users.values()), None))
+    # Возвращаем значение по умолчанию, если internal_number None или пользователь не найден
+    default_value = DEFAULT_USER_ID if DEFAULT_USER_ID else next(iter(bitrix_users.values()), None)
+    return default_value, True
 
 
 # Регистрация звонка в Битрикс24
@@ -96,12 +104,10 @@ def attachRecord(call_data, encoded_file):
     requests.post(f'{BITRIX_URL}telephony.externalCall.attachRecord', file_data).json()
 
 
-def show_card(call_id, user_id):
+def card_action(call_id, user_id, action):
     call_data = {
         'CALL_ID': call_id,
         'USER_ID': user_id
     }
 
-    response = requests.post(f'{BITRIX_URL}telephony.externalcall.show', call_data).json()
-
-    print('WWWWWWWWW', response)
+    response = requests.post(f'{BITRIX_URL}telephony.externalcall.{action}', call_data).json()
