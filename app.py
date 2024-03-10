@@ -59,7 +59,8 @@ async def ami_callback(mngr: Manager, message: Message):
 
         # Входящий звонок
         if message.Context in INBOUND_CONTEXTS:
-            calls_data[call_id]['phone_number'] = message.CallerIDNum
+            if message.CallerIDNum != '<unknown>':
+                calls_data[call_id]['phone_number'] = message.CallerIDNum
 
         # Регистрация входящего звонка и карточка
         elif message.Context == 'from-internal':
@@ -101,10 +102,13 @@ async def ami_callback(mngr: Manager, message: Message):
         if message.Context == 'from-internal':
             del calls_data[call_id]
         # Для исходящих и входящих установка статуса
-        if message.Context in ['macro-dial-one', 'from-pstn']:
-            calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(message.CallerIDNum)
+        elif message.Context in INBOUND_CONTEXTS:
+            internal_phone = message.ConnectedLineNum
+        elif message.Context in ['macro-dial-one']:
+            internal_phone = message.CallerIDNum
 
-            calls_data[call_id]['call_status'] = 200
+        calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(internal_phone)
+        calls_data[call_id]['call_status'] = 200
 
     # Трансфер звонка
     elif message.Event == 'BlindTransfer' and message.Result == 'Success':
