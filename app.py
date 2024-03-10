@@ -1,8 +1,6 @@
 import os
-import asyncio 
 import base64
 import requests
-import logging
 import time
 import configparser
 
@@ -19,7 +17,6 @@ PORT = config.get('asterisk', 'port')
 USER = config.get('asterisk', 'username')
 SECRET = config.get('asterisk', 'secret')
 RECORDS_URL = config.get('asterisk', 'records_url')
-INTERNAL_COUNT = int(config.get('asterisk', 'internal_count'))
 
 def to_list(input_string):
     return [item.strip() for item in input_string.split(',')]
@@ -53,71 +50,36 @@ manager = Manager(
 )
 
 
-def on_connect(mngr: Manager):
-    logging.info(
-        'Connected to %s:%s AMI socket successfully' %
-        (mngr.config['host'], mngr.config['port'])
-    )
-
-
-def on_login(mngr: Manager):
-    logging.info(
-        'Connected user:%s to AMI %s:%s successfully' %
-        (mngr.config['username'], mngr.config['host'], mngr.config['port'])
-    )
-
-
-def on_disconnect(mngr: Manager, exc: Exception):
-    logging.info(
-        'Disconnect user:%s from AMI %s:%s' %
-        (mngr.config['username'], mngr.config['host'], mngr.config['port'])
-    )
-    logging.debug(str(exc))
-
-
-async def on_shutdown(mngr: Manager):
-    await asyncio.sleep(0.1)
-    logging.info(
-        'Shutdown AMI connection on %s:%s' % (mngr.config['host'], mngr.config['port'])
-    )
-
-
 @manager.register_event('*')  # Register all events
 async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
     if message.Event == 'Newchannel':
+        if call_id not in calls_data:
+            calls_data[call_id] = {'start_time': time.time()}
 
         # Входящий звонок
         if message.Context in INBOUND_CONTEXTS:
-            if call_id in calls_data:
-                return
-            calls_data[call_id] = {'start_time': time.time()}
             calls_data[call_id]['phone_number'] = message.CallerIDNum
 
         # Регистрация входящего звонка и карточка
         elif message.Context == 'from-internal':
+            bitrix_user_id, default_user = bitrix.get_user_id(message.CallerIDNum)
+            calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
             if message.Exten == 's':
-                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
-                calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
                 
                 # Для первого в очереди или единственного вн номера
-                if 'bitrix_call_id' not in calls_data[call_id]:
-                    bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
-                    calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
+                if 'bitrix_call_id' not in calls_data[call_id] and 'phone_number' in calls_data[call_id]:
+                    calls_data[call_id]['bitrix_call_id'] = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
 
-                if deafault_user:
-                    return
                 # Для последующих в очереди или группе показываем карточку
-                else:
+                elif not default_user:
                     bitrix.card_action(calls_data[call_id]['bitrix_call_id'], bitrix_user_id, 'show')
 
             # Исходящий звонок - регистрация
-            elif len(message.Exten) > INTERNAL_COUNT:
-                calls_data[call_id] = {'start_time': time.time()}
-                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
-                calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
-                bitrix_call_id = bitrix.register_call(bitrix_user_id, message.Exten, 1)
-                calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
+            else:
+                if len(message.Exten) < 5:
+                    return
+                calls_data[call_id]['bitrix_call_id'] = bitrix.register_call(bitrix_user_id, message.Exten, 1)
     
     # Получение пути файла записи разговора
     elif message.Variable == 'MIXMONITOR_FILENAME':
@@ -129,36 +91,35 @@ async def ami_callback(mngr: Manager, message: Message):
     elif message.Event == 'Pickup':
         call_id = message.TargetLinkedid
         bitrix.card_action(calls_data[call_id]['bitrix_call_id'], calls_data[call_id]['bitrix_user_id'], 'hide')
-        bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
-        calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+        calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(message.CallerIDNum)
     
     # Ответ на звонок
     elif message.Event == 'BridgeEnter':
         if message.Priority != '1' or message.Linkedid not in calls_data:
             return
-        if message.Context == 'macro-dial-one':
-            bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
-            calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+        # Если вызов был внутренний, удаляем его из памяти
+        if message.Context == 'from-internal':
+            del calls_data[call_id]
+        # Для исходящих и входящих установка статуса
+        if message.Context in ['macro-dial-one', 'from-pstn']:
+            calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(message.CallerIDNum)
 
-        calls_data[call_id]['call_status'] = 200
+            calls_data[call_id]['call_status'] = 200
 
     # Трансфер звонка
     elif message.Event == 'BlindTransfer' and message.Result == 'Success':
         call_id = message.TransfererLinkedid
         bitrix.card_action(calls_data[call_id]['bitrix_call_id'], calls_data[call_id]['bitrix_user_id'], 'hide')
-        bitrix_user_id, deafault_user = bitrix.get_user_id(message.Extension)
-        calls_data[call_id]['bitrix_user_id'] = bitrix_user_id
+        calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(message.Extension)
     
     # Завершение звонка
     elif message.Event == 'Hangup':
         call_data = calls_data.get(call_id)
-        if message.Context == 'from-internal':
+        if message.Context == 'from-internal' and message.ChannelState in ['5']:
 
             # Если перезагрузка звонка в очереди или ответил кто-то, закрываем карточку
-            if message.ChannelState in ['5']:
-                bitrix_user_id, deafault_user = bitrix.get_user_id(message.CallerIDNum)
-                if deafault_user:
-                    return
+            bitrix_user_id, default_user = bitrix.get_user_id(message.CallerIDNum)
+            if not default_user:
                 bitrix.card_action(call_data['bitrix_call_id'], bitrix_user_id, 'hide')
 
         elif message.Context not in HANGUP_DELISTING:
@@ -168,17 +129,14 @@ async def ami_callback(mngr: Manager, message: Message):
 
             # Добавление пользователя по умолчанию если вызов сброшен до регистрации
             if 'bitrix_user_id' not in call_data:
-                bitrix_user_id, deafault_user = bitrix.get_user_id(None)
+                bitrix_user_id, _ = bitrix.get_user_id(None)
                 call_data['bitrix_user_id'] = bitrix_user_id
-                bitrix_call_id = bitrix.register_call(bitrix_user_id, call_data['phone_number'], 2)
-                call_data['bitrix_call_id'] = bitrix_call_id
+                call_data['bitrix_call_id'] = bitrix.register_call(bitrix_user_id, call_data['phone_number'], 2)
 
             # Закрытие звонка в битрикс
-            if bitrix.finish_call(call_data) and call_data["call_status"] == 200:
+            if bitrix.finish_call(call_data) and call_data["call_status"] == 200 and 'file_patch' in call_data:
 
                 # передача записи звонка
-                if 'file_patch' not in call_data:
-                    return
                 file_url = f'{RECORDS_URL}{call_data["file_patch"]}'
                 response = requests.get(file_url)
                 if response.status_code == 200:
@@ -186,13 +144,10 @@ async def ami_callback(mngr: Manager, message: Message):
 
                     bitrix.attachRecord(call_data, encoded_file)
 
-            del calls_data[call_id]
             print(calls_data)
+            if call_id in calls_data:
+                del calls_data[call_id]
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    manager.on_connect = on_connect
-    manager.on_login = on_login
-    manager.on_disconnect = on_disconnect
-    manager.connect(run_forever=True, on_shutdown=on_shutdown)
+    manager.connect(run_forever=True)

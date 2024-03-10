@@ -35,6 +35,16 @@ nano config.ini
 + [inbound_contexts] - список контекстов внешних вызовов
 + [hangup_delisting] - список контекстов для исключения в событии hangup
 
+
+### cel_general_custom.conf
+
+```
+[general]+
+apps=dial
+[manager]+
+enabled=yes
+```
+
 ### AMI менеджер bitrixamisync (read CALL, Cdr, dialplan)
 
 /admin/config.php?display=manager

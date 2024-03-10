@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import requests
@@ -70,8 +69,7 @@ def register_call(bitrix_user_id, phone_number, call_type):
         'CRM_CREATE': CRM_CREATE
     }
 
-    call_data = requests.post(f'{BITRIX_URL}telephony.externalcall.register', 
-                              json=register_param).json()
+    call_data = requests.post(f'{BITRIX_URL}telephony.externalcall.register', register_param).json()
     if 'result' in call_data:
         return call_data['result']['CALL_ID']
     else:
