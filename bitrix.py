@@ -103,9 +103,10 @@ def attachRecord(call_data, encoded_file):
 
 
 def card_action(call_id, user_id, action):
-    call_data = {
-        'CALL_ID': call_id,
-        'USER_ID': user_id
-    }
+    if SHOW_CARD == 1:
+        call_data = {
+            'CALL_ID': call_id,
+            'USER_ID': user_id
+        }
 
-    requests.post(f'{BITRIX_URL}telephony.externalcall.{action}', call_data).json()
+        requests.post(f'{BITRIX_URL}telephony.externalcall.{action}', call_data).json()

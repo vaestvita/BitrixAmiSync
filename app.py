@@ -101,13 +101,15 @@ async def ami_callback(mngr: Manager, message: Message):
         # Если вызов был внутренний, удаляем его из памяти
         if message.Context == 'from-internal':
             del calls_data[call_id]
+            return
         # Для исходящих и входящих установка статуса
         elif message.Context in INBOUND_CONTEXTS:
-            internal_phone = message.ConnectedLineNum
+            pass
         elif message.Context in ['macro-dial-one']:
-            internal_phone = message.CallerIDNum
+            calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(message.CallerIDNum)
+        else:
+            return
 
-        calls_data[call_id]['bitrix_user_id'], _ = bitrix.get_user_id(internal_phone)
         calls_data[call_id]['call_status'] = 200
 
     # Трансфер звонка
@@ -129,7 +131,7 @@ async def ami_callback(mngr: Manager, message: Message):
         elif message.Context not in HANGUP_DELISTING:
            # Установка статуса звонка, если он еще не установлен
             if 'call_status' not in call_data:
-                call_data["call_status"] = dial_status.get(message.Cause, '304')
+                call_data["call_status"] = dial_status.get(message.Cause, 304)
 
             # Добавление пользователя по умолчанию если вызов сброшен до регистрации
             if 'bitrix_user_id' not in call_data:
