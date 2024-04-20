@@ -53,6 +53,7 @@ manager = Manager(
 @manager.register_event('*')  # Register all events
 async def ami_callback(mngr: Manager, message: Message):
     call_id = message.Linkedid
+    bitrix_call_id = None
     if message.Event == 'Newchannel':
         if call_id not in calls_data:
             calls_data[call_id] = {'start_time': time.time()}
@@ -70,10 +71,11 @@ async def ami_callback(mngr: Manager, message: Message):
                 
                 # Для первого в очереди или единственного вн номера
                 if 'bitrix_call_id' not in calls_data[call_id] and 'phone_number' in calls_data[call_id]:
-                    calls_data[call_id]['bitrix_call_id'] = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
+                    bitrix_call_id = bitrix.register_call(bitrix_user_id, calls_data[call_id]['phone_number'], 2)
+                    calls_data[call_id]['bitrix_call_id'] = bitrix_call_id
 
                 # Для последующих в очереди или группе показываем карточку
-                elif not default_user:
+                elif not default_user and bitrix_call_id:
                     bitrix.card_action(calls_data[call_id]['bitrix_call_id'], bitrix_user_id, 'show')
 
             # Исходящий звонок - регистрация
@@ -125,7 +127,7 @@ async def ami_callback(mngr: Manager, message: Message):
 
             # Если перезагрузка звонка в очереди или ответил кто-то, закрываем карточку
             bitrix_user_id, default_user = bitrix.get_user_id(message.CallerIDNum)
-            if not default_user:
+            if not default_user and bitrix_call_id:
                 bitrix.card_action(call_data['bitrix_call_id'], bitrix_user_id, 'hide')
 
         elif message.Context not in HANGUP_DELISTING:
