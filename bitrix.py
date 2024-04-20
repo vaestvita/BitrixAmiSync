@@ -77,9 +77,13 @@ def register_call(bitrix_user_id, phone_number, call_type):
 
 
 def finish_call(call_data):
+    call_id = call_data.get('bitrix_call_id')
+    user_id = call_data.get('bitrix_user_id')
+    if not call_id or not user_id:
+        return
     finish_param = {
-        'CALL_ID': call_data["bitrix_call_id"],
-        'USER_ID': call_data["bitrix_user_id"],
+        'CALL_ID': call_id,
+        'USER_ID': user_id,
         'DURATION': round(time.time() - call_data["start_time"]),
         'STATUS_CODE': call_data["call_status"]
     }
