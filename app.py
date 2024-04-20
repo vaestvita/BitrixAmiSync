@@ -123,6 +123,9 @@ async def ami_callback(mngr: Manager, message: Message):
     # Завершение звонка
     elif message.Event == 'Hangup':
         call_data = calls_data.get(call_id)
+        if not call_data:
+            print(f'Незарегистрированный звонок {call_id}')
+            return
         if message.Context == 'from-internal' and message.ChannelState in ['5']:
 
             # Если перезагрузка звонка в очереди или ответил кто-то, закрываем карточку
